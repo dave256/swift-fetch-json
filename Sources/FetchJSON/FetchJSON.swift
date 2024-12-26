@@ -16,6 +16,47 @@ extension Array where Element == URLQueryItem {
     }
 }
 
+/// values for a URLRequest
+public protocol URLQueryConfig {
+
+    ///  path/endpoint for the URLRequest
+    /// - Returns: the path/endpoint for the URLRequest
+    func path() -> String
+
+    /// array of URLQueryItem for the URLRequest
+    var queryItems: [URLQueryItem] { get }
+}
+
+extension URLQueryConfig {
+    /// makes a URLRequest using the components along with the path and query items in the protocol
+    /// - Parameters:
+    ///   - components: URL components with the scheme and host set
+    ///   - headers: if provided set the URLRequest's allHTTPHeaderFields to this
+    ///   - method: URLRquest.http method
+    ///   - timeoutInterval: if provided, set the URLRequest's timeoutInterval to this
+    /// - Returns: URLRequest with the specified values or nil if unable to create the URL
+    public func urlRequest(
+        components: URLComponents, headers: [String: String],
+        method: String? = nil, timeoutInterval: TimeInterval? = nil
+    ) -> URLRequest? {
+        var components = components
+        components.path = path()
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        if !headers.isEmpty {
+            request.allHTTPHeaderFields = headers
+        }
+        if let timeoutInterval {
+            request.timeoutInterval = timeoutInterval
+        }
+        return request
+    }
+}
+
 /// errors that can be thrown using URLRequest.fetch and Decodable.fetchAndDecode or Decoable.decode
 ///
 /// the non-Verbose ones are useful in testing to see if that error is thrown without worrying about the specific message

@@ -8,12 +8,9 @@ import Testing
 struct Joke: Identifiable, Hashable, Codable {
     var id: String
     var joke: String
+}
 
-    enum RequestType {
-        case random
-        case byID(String)
-    }
-
+struct JokeConfig: URLQueryConfig {
     static var baseComponents: URLComponents {
         var components = URLComponents()
         components.scheme = "https"
@@ -21,46 +18,39 @@ struct Joke: Identifiable, Hashable, Codable {
         return components
     }
 
-    static func urlComponents(for type: RequestType) -> URLComponents {
-        var components = Joke.baseComponents
-        switch type {
-        case .random:
-            components.path = "/"
-        case .byID(let id):
-            components.path = "/j/\(id)"
+    static var headers: [String: String] {
+        [
+            "Accept": "application/json",
+        ]
+    }
+
+    enum RequestType {
+        case random
+        case byID(String)
+    }
+    var requestType: RequestType
+
+    func path() -> String {
+        switch requestType {
+            case .random:
+                return "/"
+            case .byID(let id):
+                return "/j/\(id)"
         }
-        return components
     }
 
-    static func urlRequest(for type: RequestType) -> URLRequest? {
-        let components = Self.urlComponents(for: type)
-        guard let url = components.url else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        // specify the header for JSON format of the joke
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        return request
+    var queryItems: [URLQueryItem] = []
+
+    static func randomRequest() -> URLRequest? {
+        let config: JokeConfig = .init(requestType: .random)
+        return config
+            .urlRequest(components: JokeConfig.baseComponents, headers: JokeConfig.headers)
     }
-}
 
-struct JokeSearchConfig {
-    var searchTerm: String?
-    var page: Int?
-    var limit: Int?
-
-    func queryItems() -> [URLQueryItem] {
-        var items: [String: LosslessStringConvertible] = [:]
-        if let searchTerm { items["term"] = searchTerm }
-        if let page { items["page"] = page }
-        if let limit { items["limit"] = limit }
-        let queryItems: [URLQueryItem] = .init(items)
-        return queryItems
-    }
-}
-
-extension JokeSearchConfig {
-    init(searchTerm: String) {
-        self.init(searchTerm: searchTerm, page: nil, limit: nil)
+    static func byIDRequest(id: String) -> URLRequest? {
+        let config: JokeConfig = .init(requestType: .byID(id))
+        return config
+            .urlRequest(components: JokeConfig.baseComponents, headers: JokeConfig.headers)
     }
 }
 
@@ -86,47 +76,81 @@ public struct JokeSearch: Codable {
         case limit
         case results
     }
+}
 
-    static func urlRequest(for search: JokeSearchConfig) -> URLRequest? {
-        var components = Joke.baseComponents
-        components.path = "/search"
-        components.queryItems = search.queryItems()
-        guard let url = components.url else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        // specify the header for JSON format of the joke
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        return request
+struct JokeSearchConfig: URLQueryConfig {
+    var searchTerm: String?
+    var page: Int?
+    var limit: Int?
+
+    func path() -> String {
+        "/search"
+    }
+
+    var queryItems: [URLQueryItem] {
+        var items: [String: LosslessStringConvertible] = [:]
+        if let searchTerm { items["term"] = searchTerm }
+        if let page { items["page"] = page }
+        if let limit { items["limit"] = limit }
+        let queryItems: [URLQueryItem] = .init(items)
+        return queryItems
+    }
+
+    static var headers: [String: String] {
+        [
+            "Accept": "application/json",
+        ]
+    }
+
+    static func searchRequest(search: String? = nil, page: Int? = nil, limit: Int? = nil) -> URLRequest? {
+        let config: JokeSearchConfig = .init(searchTerm: search, page: page, limit: limit)
+        return config
+            .urlRequest(components: JokeConfig.baseComponents, headers: JokeConfig.headers)
+    }
+
+}
+
+extension JokeSearchConfig {
+    init(searchTerm: String) {
+        self.init(searchTerm: searchTerm, page: nil, limit: nil)
     }
 }
 
-extension Joke {
-    static let sampleURL = "https://icanhazdadjoke.com/j/EYoz51DtHtc"
+
+// MARK: - test extensions
+
+extension JokeConfig {
+    static let sampleID = "EYoz51DtHtc"
+    static let sampleURL = "https://icanhazdadjoke.com/j/\(sampleID)"
     static let sampleCorrectResponse = """
-        {"id":"EYoz51DtHtc","joke":"What do computers and air conditioners have in common? They both become useless when you open windows.","status":200}
+        {"id":"\(sampleID)","joke":"What do computers and air conditioners have in common? They both become useless when you open windows.","status":200}
         """
+    static let sampleJokeRequest = JokeConfig.byIDRequest(id: sampleID)!
+
     static let sampleJoke = Joke(
-        id: "EYoz51DtHtc",
+        id: sampleID,
         joke:
             "What do computers and air conditioners have in common? They both become useless when you open windows."
     )
-    static let sampleJokeRequest = Joke.urlRequest(for: .byID("EYoz51DtHtc"))
 }
+
+// MARK: -
 
 struct JokeTests {
     struct BasicTest {
         @Test func searchByID() async throws {
             // make certain not nil
-            let request = try #require(Joke.sampleJokeRequest)
-            #expect(request.url?.absoluteString == Joke.sampleURL)
+            let request = try #require(JokeConfig.byIDRequest(id: JokeConfig.sampleID))
+            #expect(request.url!.absoluteString == JokeConfig.sampleURL)
             await #expect(throws: Never.self) {
                 let joke = try await Joke.fetchAndDecode(urlRequest: request)
-                #expect(joke == Joke.sampleJoke)
+                #expect(joke == JokeConfig.sampleJoke)
             }
         }
 
         @Test func randomJoke() async throws {
-            let request = try #require(Joke.urlRequest(for: .random))
+            let request = try #require(JokeConfig.randomRequest())
+            print(request.url!.absoluteString)
             await #expect(throws: Never.self) {
                 let joke = try await Joke.fetchAndDecode(urlRequest: request)
                 #expect(!joke.id.isEmpty)
@@ -136,11 +160,11 @@ struct JokeTests {
     }
 
     struct ErrorHandlingTests {
-        static let badResponseCode = Joke.sampleCorrectResponse
+        static let badResponseCode = JokeConfig.sampleCorrectResponse
             .replacingOccurrences(of: "200", with: "404")
 
         @Test func badResponse() async throws {
-            var request = try #require(Joke.urlRequest(for: .random))
+            var request = try #require(JokeConfig.randomRequest())
             request.url = URL(string: "https://icanhazdadjoke.com/abc")!
             await #expect(throws: FetchJSONError.invalidStatusCode(404)) {
                 _ = try await Joke.fetchAndDecode(urlRequest: request)
@@ -148,7 +172,7 @@ struct JokeTests {
         }
 
         @Test func badJokeID() async throws {
-            let request = try #require(Joke.urlRequest(for: .byID("123")))
+            let request = try #require(JokeConfig.byIDRequest(id: "123"))
             await #expect(throws: FetchJSONError.keyNotFound) {
                 _ = try await Joke.fetchAndDecode(
                     urlRequest: request, verboseErrors: false)
@@ -156,7 +180,7 @@ struct JokeTests {
         }
 
         @Test func badJokeIDVerboseErrors() async throws {
-            let request = try #require(Joke.urlRequest(for: .byID("123")))
+            let request = try #require(JokeConfig.byIDRequest(id: "123"))
             do {
                 _ = try await Joke.fetchAndDecode(
                     urlRequest: request, verboseErrors: true)
@@ -173,7 +197,7 @@ struct JokeTests {
                 var id: String
                 var jokeBadKey: String
             }
-            let request = try #require(Joke.sampleJokeRequest)
+            let request = try #require(JokeConfig.sampleJokeRequest)
             await #expect(throws: FetchJSONError.keyNotFound) {
                 _ =
                     try await JokeBadKey
@@ -186,7 +210,7 @@ struct JokeTests {
                 var id: String
                 var jokeBadKey: String
             }
-            let request = try #require(Joke.sampleJokeRequest)
+            let request = try #require(JokeConfig.sampleJokeRequest)
             do {
                 _ =
                     try await JokeBadKey.fetchAndDecode(urlRequest: request)
@@ -204,7 +228,7 @@ struct JokeTests {
                 var joke: String
                 var extraKey: String
             }
-            let request = try #require(Joke.sampleJokeRequest)
+            let request = try #require(JokeConfig.sampleJokeRequest)
             await #expect(throws: FetchJSONError.keyNotFound) {
                 _ = try await JokeExtraKey.fetchAndDecode(
                     urlRequest: request, verboseErrors: false)
@@ -217,7 +241,7 @@ struct JokeTests {
                 var joke: String
                 var extraKey: String
             }
-            let request = try #require(Joke.sampleJokeRequest)
+            let request = try #require(JokeConfig.sampleJokeRequest)
             do {
                 _ =
                     try await JokeExtraKey
@@ -234,8 +258,7 @@ struct JokeTests {
 
 struct JokeSearchTests {
     @Test func searchWindows() async throws {
-        let config = JokeSearchConfig(searchTerm: "windows")
-        let request = try #require(JokeSearch.urlRequest(for: config))
+        let request = try #require(JokeSearchConfig.searchRequest(search: "windows"))
 //        let url = request.url!
 //        print(url)
         await #expect(throws: Never.self) {
@@ -251,8 +274,7 @@ struct JokeSearchTests {
     }
 
     @Test func searchComputerOrWindows() async throws {
-        let config = JokeSearchConfig(searchTerm: "computer windows", page: 1, limit: 5)
-        let request = try #require(JokeSearch.urlRequest(for: config))
+        let request = try #require(JokeSearchConfig.searchRequest(search: "computer windows", page: 1, limit: 5))
 //        let url = request.url!
 //        print(url)
         await #expect(throws: Never.self) {
@@ -269,8 +291,10 @@ struct JokeSearchTests {
     }
 
     @Test func searchPage2() async throws {
-        let config = JokeSearchConfig(page: 2, limit: 10)
-        let request = try #require(JokeSearch.urlRequest(for: config))
+        let request = try #require(JokeSearchConfig.searchRequest(
+            page: 2,
+            limit: 10
+        ))
 //        let url = request.url!
 //        print(url)
         await #expect(throws: Never.self) {
