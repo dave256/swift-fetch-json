@@ -94,13 +94,13 @@ extension URLRequest {
     ///
     /// throws FetchJSONError.notHTTPResponse or FetchJSONError.invalidStatusCode (if response not 200)
     /// - Returns: Data that was fetched
-    public func fetch() async throws -> Data {
+    public func fetch(expectedStatus: Int = 200) async throws -> Data {
         do {
             let (data, response) = try await URLSession.shared.data(for: self)
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw FetchJSONError.notHTTPResponse(response)
             }
-            guard httpResponse.statusCode == 200 else {
+            guard httpResponse.statusCode == expectedStatus else {
                 throw FetchJSONError.invalidStatusCode(httpResponse.statusCode)
             }
             //print(String(data: data, encoding: .utf8) ?? "could not convert data to string")
@@ -119,10 +119,11 @@ extension Decodable {
     /// - Returns: Self
     public static func fetchAndDecode(
         urlRequest: URLRequest,
+        expectedStatus: Int = 200,
         decoder: JSONDecoder? = nil,
         verboseErrors: Bool = true
     ) async throws -> Self {
-        let data = try await urlRequest.fetch()
+        let data = try await urlRequest.fetch(expectedStatus: expectedStatus)
         return try decode(
             from: data,
             decoder: decoder,
